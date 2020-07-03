@@ -13,6 +13,8 @@ import java.util.Set;
 @Setter
 public class UserResource {
 
+    private long userId;
+
     private String firstName;
 
     private String middleName;

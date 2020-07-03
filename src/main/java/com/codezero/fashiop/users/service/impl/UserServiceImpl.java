@@ -1,7 +1,9 @@
 package com.codezero.fashiop.users.service.impl;
 
 import com.codezero.fashiop.shared.util.FileUploaderUtil;
+import com.codezero.fashiop.users.dao.RoleDao;
 import com.codezero.fashiop.users.dao.UserDao;
+import com.codezero.fashiop.users.entity.Role;
 import com.codezero.fashiop.users.entity.User;
 import com.codezero.fashiop.users.exception.UserException;
 import com.codezero.fashiop.users.resources.UserRequest;
@@ -18,17 +20,21 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+
+import static com.codezero.fashiop.shared.model.Constants.USER_PROFILE_PICTURE_UPLOAD_FOLDER;
 
 @Service(value = "userService")
 public class UserServiceImpl implements UserService, UserDetailsService {
 
     @Autowired
     UserDao userDao;
+
+    @Autowired
+    RoleDao roleDao;
 
     @Autowired
     private BCryptPasswordEncoder bcryptEncoder;
@@ -64,8 +70,37 @@ public class UserServiceImpl implements UserService, UserDetailsService {
     }
 
     @Override
-    public void saveUser(UserRequest userRequest) {
-        userDao.save(convertUserRequestToUser(userRequest));
+    public UserResource saveUser(UserRequest userRequest) {
+        User user = userDao.save(convertUserRequestToUser(userRequest));
+        return convertToUserResource(user);
+    }
+
+    @Override
+    public UserResource updateUser(UserRequest userRequest) {
+        User user = userDao.findByUsername(userRequest.getUsername());
+        user.setFirstName(userRequest.getFirstName());
+        user.setMiddleName(userRequest.getMiddleName());
+        user.setLastName(userRequest.getLastName());
+        user.setEmail(userRequest.getEmail());
+        user.setDateOfBirth(userRequest.getDateOfBirth());
+        user.setGender(userRequest.getGender());
+        userDao.save(user);
+        return convertToUserResource(user);
+
+    }
+
+    @Override
+    public UserResource deleteUser(String username) {
+        User user = userDao.findByUsername(username);
+        if (user == null) {
+            return null;
+        } else {
+            if(!FileUploaderUtil.deleteImage(USER_PROFILE_PICTURE_UPLOAD_FOLDER, user.getProfilePicture())) {
+                System.out.println("File delete not successful. Please delete manually");
+            }
+            userDao.delete(user);
+        }
+        return convertToUserResource(user);
     }
 
     @Override
@@ -79,6 +114,13 @@ public class UserServiceImpl implements UserService, UserDetailsService {
         return convertToUserResource(user);
     }
 
+    @Override
+    public UserResource saveUserImage(MultipartFile file, long userId) {
+        User user = fetchUserInfo(userId);
+        user.setProfilePicture(FileUploaderUtil.uploadImage(file, user.getUsername(), USER_PROFILE_PICTURE_UPLOAD_FOLDER));
+        return convertToUserResource(userDao.save(user));
+    }
+
     private User convertUserRequestToUser(UserRequest userRequest) {
         User user = new User();
         user.setFirstName(userRequest.getFirstName());
@@ -86,23 +128,15 @@ public class UserServiceImpl implements UserService, UserDetailsService {
         user.setLastName(userRequest.getLastName());
         user.setEmail(userRequest.getEmail());
         user.setUsername(userRequest.getUsername());
-        user.setPassword(bcryptEncoder.encode(user.getPassword()));
+        user.setPassword(bcryptEncoder.encode(userRequest.getPassword()));
         user.setGender(userRequest.getGender());
-        user.setJoinedDate(userRequest.getJoinedDate());
+        user.setJoinedDate(new Date());
         user.setDateOfBirth(userRequest.getDateOfBirth());
-        user.setJoinedDate(userRequest.getJoinedDate());
-
-        user.setProfilePicture(FileUploaderUtil.uploadImage("users/profileimage/",
-                userRequest.getProfilePicture(),
-                createFullName(userRequest.getFirstName(), userRequest.getMiddleName(), userRequest.getLastName())));
+        user.setStatus(true);
+        Set<Role> roles = new HashSet<Role>();
+        roles.add(roleDao.findByName("USER"));
+        user.setRoles(roles);
         return user;
-    }
-
-    private String createFullName(String firstName, String middleName, String lastName){
-        if(middleName != null){
-            middleName = " " + middleName;
-        }
-        return (firstName + middleName  + " " +  lastName);
     }
 
     private UserResourceList convertToUserResources(Page<User> users) {
@@ -123,6 +157,7 @@ public class UserServiceImpl implements UserService, UserDetailsService {
     private UserResource convertToUserResource(User user){
         return UserResource
                 .builder()
+                .userId((user.getId()))
                 .dateOfBirth(user.getDateOfBirth())
                 .email(user.getEmail())
                 .firstName(user.getFirstName())
@@ -134,6 +169,11 @@ public class UserServiceImpl implements UserService, UserDetailsService {
                 .username(user.getUsername())
                 .roles(user.getRoles())
                 .build();
+    }
+
+    private User fetchUserInfo(long userId) {
+        return userDao.findById(userId).orElseThrow((() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found.")));
     }
 
 }

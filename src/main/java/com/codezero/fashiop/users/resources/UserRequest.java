@@ -22,6 +22,8 @@ public class UserRequest {
 
     private String username;
 
+    private String password;
+
     private MultipartFile profilePicture;
 
     private String gender;
